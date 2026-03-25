@@ -21,3 +21,4 @@ class CloudState(State):
     starting_cost: float = 0.0
     current_cost: float = 0.0
     website_crashed: bool = False
+    target_achieved: bool = False  # <-- ADD THIS LINE

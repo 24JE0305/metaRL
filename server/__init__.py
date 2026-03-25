@@ -6,6 +6,6 @@
 
 """Cloud Optimizer environment server components."""
 
-from .cloud_optimizer_environment import CloudOptimizerEnvironment
+from .environment import CloudOptimizerEnvironment
 
 __all__ = ["CloudOptimizerEnvironment"]
