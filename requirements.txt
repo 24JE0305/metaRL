@@ -1,0 +1,4 @@
+openenv-core
+huggingface_hub
+numpy
+pandas
