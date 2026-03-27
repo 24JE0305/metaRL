@@ -1,16 +1,10 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
-
 """Cloud Optimizer Environment."""
 
-from .client import CloudOptimizerEnv
-from .models import CloudOptimizerAction, CloudOptimizerObservation
+from .client import CloudOptimizerClient
+from .models import CloudAction, CloudObservation
 
 __all__ = [
-    "CloudOptimizerAction",
-    "CloudOptimizerObservation",
-    "CloudOptimizerEnv",
+    "CloudAction",
+    "CloudObservation",
+    "CloudOptimizerClient",
 ]
