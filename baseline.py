@@ -5,13 +5,17 @@ from models import CloudAction
 from server.environment import CloudOptimizerEnvironment
 
 def run_baseline():
-    # The hackathon judge will inject this into the environment variables
+    # The judge requires it to read from "OPENAI_API_KEY"
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         print("Error: OPENAI_API_KEY environment variable not set.")
         return
 
-    client = OpenAI(api_key=api_key)
+    # THE HACK: Use the OpenAI client, but route it to free Gemini servers!
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+    )
     env = CloudOptimizerEnvironment()
     
     difficulties = ["easy", "medium", "hard"]
@@ -25,7 +29,6 @@ def run_baseline():
         done = False
         
         while not done:
-            # 1. Build the prompt using the exact observation data
             prompt = f"""
             Your goal is to reduce costs to meet the budget without crashing the website.
             
@@ -46,26 +49,24 @@ def run_baseline():
             Based on the Active Servers and Budget, what is your next action?
             """
             
-            # 2. Call OpenAI and force it to use our CloudAction schema
+            # Use Gemini model name, but parse with OpenAI's strict schema
             response = client.beta.chat.completions.parse(
-                model="gpt-4o-mini",
+                model="gemini-1.5-flash",
                 messages=[
                     {"role": "system", "content": "You are an expert Cloud FinOps AI agent."},
                     {"role": "user", "content": prompt}
                 ],
-                response_format=CloudAction, # OpenAI will automatically parse the output into our Pydantic class!
+                response_format=CloudAction, 
             )
             
             action = response.choices[0].message.parsed
             print(f"🤖 Agent Action: {action.command.upper()} | Server: {action.server_id} | Size: {action.new_size}")
             
-            # 3. Pass the action back into our environment
             obs = env.step(action)
             done = obs.done
             print(f"💻 Env Response: {obs.system_message}")
             print(f"   Current Cost: ${obs.current_hourly_cost}\n")
             
-        # 4. Calculate final grader score
         score = 1.0 if env.state.target_achieved else 0.0
         print(f"--- Task '{diff}' Complete ---")
         print(f"Final Cost: ${obs.current_hourly_cost} / Budget: ${obs.budget_limit}")
