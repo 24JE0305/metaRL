@@ -4,17 +4,20 @@ from openai import OpenAI
 from models import CloudAction
 from server.environment import CloudOptimizerEnvironment
 
-def run_baseline():
-    # The judge requires it to read from "OPENAI_API_KEY"
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        print("Error: OPENAI_API_KEY environment variable not set.")
+def run_inference():
+    # Load required hackathon environment variables
+    api_key = os.environ.get("HF_TOKEN")
+    base_url = os.environ.get("API_BASE_URL")
+    model_name = os.environ.get("MODEL_NAME")
+
+    if not api_key or not base_url or not model_name:
+        print("Error: HF_TOKEN, API_BASE_URL, or MODEL_NAME environment variables not set.")
         return
 
-    # THE HACK: Use the OpenAI client, but route it to free Gemini servers!
+    # Instantiate the client using the hackathon API
     client = OpenAI(
         api_key=api_key,
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        base_url=base_url
     )
     env = CloudOptimizerEnvironment()
     
@@ -49,9 +52,9 @@ def run_baseline():
             Based on the Active Servers and Budget, what is your next action?
             """
             
-            # Use Gemini model name, but parse with OpenAI's strict schema
+            # Use the model name passed from the environment
             response = client.beta.chat.completions.parse(
-                model="gemini-1.5-flash",
+                model=model_name,
                 messages=[
                     {"role": "system", "content": "You are an expert Cloud FinOps AI agent."},
                     {"role": "user", "content": prompt}
@@ -74,4 +77,4 @@ def run_baseline():
         print(f"🏆 GRADER SCORE: {score}\n\n")
 
 if __name__ == "__main__":
-    run_baseline()
+    run_inference()
