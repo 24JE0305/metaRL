@@ -74,10 +74,10 @@ async def get_state():
 async def run_baseline():
     try:
         result = subprocess.run(
-            ["python", "baseline.py"],
+            ["python", "inference.py"],  # ← CHANGED: Now points to the required inference script
             capture_output=True,
             text=True,
-            env=os.environ,          # ← CRITICAL: passes OPENAI_API_KEY through
+            env=os.environ,          
             timeout=120
         )
         return {
@@ -86,7 +86,7 @@ async def run_baseline():
             "stderr": result.stderr
         }
     except subprocess.TimeoutExpired:
-        return {"status": "error", "message": "Baseline script timed out after 120s"}
+        return {"status": "error", "message": "Inference script timed out after 120s"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

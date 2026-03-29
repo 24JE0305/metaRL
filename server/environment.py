@@ -9,11 +9,9 @@ class CloudOptimizerEnvironment(Environment):
     SUPPORTS_CONCURRENT_SESSIONS = True
 
     def __init__(self):
-        # Per-session state keyed by episode_id
         self._sessions: Dict[str, Dict[str, Any]] = {}
         self._current_episode_id: Optional[str] = None
 
-    # ── helpers ──────────────────────────────────────────
     def _session(self) -> Dict[str, Any]:
         return self._sessions.get(self._current_episode_id, {})
 
@@ -22,7 +20,6 @@ class CloudOptimizerEnvironment(Environment):
         s = self._session()
         return s.get("state", CloudState())
 
-    # ── reset ─────────────────────────────────────────────
     def reset(
         self,
         seed: Optional[int] = None,
@@ -45,10 +42,7 @@ class CloudOptimizerEnvironment(Environment):
                 {"server_id": "web-02", "cpu": 0,  "ram": "large",  "cost": 10.0},
             ]
             budget = 15.0
-            message = (
-                "EASY TASK: One server has 0% CPU and is wasting money. "
-                "Terminate it to get under the $15.00/hr budget."
-            )
+            message = "EASY TASK: Terminate 0% CPU server to get under the $15.00/hr budget."
 
         elif difficulty == "medium":
             servers = [
@@ -56,10 +50,7 @@ class CloudOptimizerEnvironment(Environment):
                 {"server_id": "web-01", "cpu": 85, "ram": "medium", "cost": 5.0},
             ]
             budget = 8.0
-            message = (
-                "MEDIUM TASK: The database is massively oversized for 10% CPU load. "
-                "Resize db-01 to 'small' ($2.00/hr) to meet the $8.00/hr budget."
-            )
+            message = "MEDIUM TASK: Resize db-01 to 'small' to meet the $8.00/hr budget."
 
         else:  # hard
             servers = [
@@ -68,11 +59,7 @@ class CloudOptimizerEnvironment(Environment):
                 {"server_id": "db-01",  "cpu": 0,  "ram": "small",  "cost": 2.0},
             ]
             budget = 10.0
-            message = (
-                "HARD TASK: Budget is $10.00/hr. "
-                "Terminate the 0% CPU server, resize the 5% CPU server to 'small'. "
-                "Do NOT touch web-01 (90% CPU) — the website will crash."
-            )
+            message = "HARD TASK: Terminate unused server, resize 5% CPU server. Do NOT touch web-01."
 
         hourly_cost = sum(s["cost"] for s in servers)
         state.starting_cost = hourly_cost
@@ -89,7 +76,6 @@ class CloudOptimizerEnvironment(Environment):
 
         return self._make_observation(eid, message)
 
-    # ── step ──────────────────────────────────────────────
     def step(
         self,
         action: CloudAction,
@@ -103,13 +89,12 @@ class CloudOptimizerEnvironment(Environment):
 
         sess = self._session()
         if not sess:
-            obs = CloudObservation(
+            return CloudObservation(
                 done=True, reward=0.0,
-                system_message="No active session. Call reset() first.",
+                system_message="No active session.",
                 active_servers=[], current_hourly_cost=0.0,
                 budget_limit=0.0, website_status="Offline"
             )
-            return obs
 
         state: CloudState = sess["state"]
         servers = sess["servers"]
@@ -119,75 +104,50 @@ class CloudOptimizerEnvironment(Environment):
         reward = 0.0
         message = f"Executed: {action.command}."
 
-        # ── TERMINATE ────────────────────────────────────
         if action.command == "terminate" and action.server_id:
             server = next((s for s in servers if s["server_id"] == action.server_id), None)
             if server:
                 if server["cpu"] > 50:
                     state.website_crashed = True
-                    message = (
-                        f"CRITICAL: Terminated {action.server_id} "
-                        f"({server['cpu']}% CPU). Website is now OFFLINE."
-                    )
+                    message = "CRITICAL: Terminated high-CPU server. Website OFFLINE."
                     reward = -0.5
                 else:
                     servers.remove(server)
-                    message = f"Terminated {action.server_id} ({server['cpu']}% CPU). Cost reduced."
+                    message = f"Terminated {action.server_id}."
                     reward = 0.2
             else:
                 message = f"Error: server '{action.server_id}' not found."
-                reward = -0.1
 
-        # ── RESIZE ───────────────────────────────────────
         elif action.command == "resize" and action.server_id and action.new_size:
             server = next((s for s in servers if s["server_id"] == action.server_id), None)
             if server:
-                old_cost = server["cost"]
                 server["ram"] = action.new_size
                 server["cost"] = {"small": 2.0, "medium": 5.0, "large": 10.0}.get(action.new_size, server["cost"])
-                saved = old_cost - server["cost"]
-                message = f"Resized {action.server_id} to {action.new_size}. Saved ${saved:.2f}/hr."
+                message = f"Resized {action.server_id} to {action.new_size}."
                 reward = 0.2
             else:
                 message = f"Error: server '{action.server_id}' not found."
-                reward = -0.1
 
-        # ── WAIT ─────────────────────────────────────────
-        else:
-            message = "Waited. No changes made."
-            reward = 0.0
-
-        # ── update cost ──────────────────────────────────
         sess["hourly_cost"] = sum(s["cost"] for s in servers)
         state.current_cost = sess["hourly_cost"]
 
-        # ── episode end logic ────────────────────────────
-        done = (
-            sess["step_count"] >= sess["step_limit"]
-            or state.website_crashed
-        )
+        # Safely check episode completion using the correct variables
+        done = (sess["step_count"] >= sess["step_limit"] or state.website_crashed)
 
         if sess["hourly_cost"] <= sess["budget"] and not state.website_crashed:
             state.target_achieved = True
             done = True
-            reward += 0.5  # completion bonus → total possible: 1.0
-        
-        # Episode Boundary Logic
-        done = self._current_step >= self._step_limit or self._state.website_crashed
-        if self._hourly_cost <= self._budget and not self._state.website_crashed:
-            self._state.target_achieved = True
-            done = True
             reward += 0.5 
 
-        # <-- ADD THESE TWO LINES -->
+        # Update the global scoreboard for the /grader endpoint
         if done:
-            GLOBAL_LAST_SCORE = 1.0 if self._state.target_achieved else 0.0
+            GLOBAL_LAST_SCORE = 1.0 if state.target_achieved else 0.0
+
         obs = self._make_observation(self._current_episode_id, message)
         obs.done = done
         obs.reward = reward
         return obs
 
-    # ── internal ─────────────────────────────────────────
     def _make_observation(self, eid: str, message: str) -> CloudObservation:
         sess = self._sessions.get(eid, {})
         state = sess.get("state", CloudState())
