@@ -9,6 +9,11 @@ import server.environment as env_module
 
 app = create_fastapi_app(CloudOptimizerEnvironment, CloudAction, CloudObservation)
 
+# ── /health ──────────────────────────────────────────────
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 # ── /tasks ──────────────────────────────────────────────
 @app.get("/tasks")
 async def get_tasks():

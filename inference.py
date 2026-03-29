@@ -2,7 +2,7 @@ import os
 import json
 from openai import OpenAI
 from models import CloudAction
-from server.environment import CloudOptimizerEnvironment
+from client import CloudOptimizerClient
 
 def run_inference():
     # Load required hackathon environment variables
@@ -19,7 +19,7 @@ def run_inference():
         api_key=api_key,
         base_url=base_url
     )
-    env = CloudOptimizerEnvironment()
+    env = CloudOptimizerClient(base_url=os.getenv("ENV_BASE_URL", "http://localhost:8000"))
     
     difficulties = ["easy", "medium", "hard"]
     
@@ -65,8 +65,9 @@ def run_inference():
             action = response.choices[0].message.parsed
             print(f"🤖 Agent Action: {action.command.upper()} | Server: {action.server_id} | Size: {action.new_size}")
             
-            obs = env.step(action)
-            done = obs.done
+            result = env.step(action)
+            obs = result.observation
+            done = result.done
             print(f"💻 Env Response: {obs.system_message}")
             print(f"   Current Cost: ${obs.current_hourly_cost}\n")
             
