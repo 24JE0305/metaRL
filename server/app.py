@@ -14,6 +14,22 @@ app = create_fastapi_app(CloudOptimizerEnvironment, CloudAction, CloudObservatio
 async def health():
     return {"status": "ok"}
 
+@app.post("/reset")
+async def reset(request: Request):
+    body = {}
+    try:
+        body = await request.json()
+    except:
+        pass
+    difficulty = body.get("difficulty", "easy")
+    env = CloudOptimizerEnvironment()
+    obs = env.reset(difficulty=difficulty)
+    return {
+        "observation": obs.model_dump(),
+        "reward": 0.0,
+        "done": False
+    }
+
 # ── /tasks ──────────────────────────────────────────────
 @app.get("/tasks")
 async def get_tasks():
