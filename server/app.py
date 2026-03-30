@@ -14,7 +14,7 @@ app = create_fastapi_app(CloudOptimizerEnvironment, CloudAction, CloudObservatio
 async def health():
     return {"status": "ok"}
 
-@app.post("/reset")
+@app.api_route("/reset", methods=["GET", "POST"])
 async def reset(request: Request):
     body = {}
     try:
