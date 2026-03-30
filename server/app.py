@@ -128,3 +128,10 @@ def _rule_based_agent(obs, difficulty: str):
         if s["cpu"] <= 20 and s["ram"] == "medium":
             return CloudAction(command="resize", server_id=s["server_id"], new_size="small")
     return CloudAction(command="wait")
+
+def main():
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+if __name__ == "__main__":
+    main()
