@@ -63,19 +63,22 @@ def run_inference():
             )
             
             action = response.choices[0].message.parsed
-            print(f"🤖 Agent Action: {action.command.upper()} | Server: {action.server_id} | Size: {action.new_size}")
+            
+            print(f"[AGENT] Action: {action.command.upper()} | Server: {action.server_id} | Size: {action.new_size}")
             
             result = env.step(action)
             obs = result.observation
             done = result.done
-            print(f"💻 Env Response: {obs.system_message}")
-            print(f"   Current Cost: ${obs.current_hourly_cost}\n")
+            
+            print(f"[ENV]   Response: {obs.system_message}")
+            print(f"        Current Cost: ${obs.current_hourly_cost}\n")
             
         score = 1.0 if env.state.target_achieved else 0.0
         print(f"--- Task '{diff}' Complete ---")
         print(f"Final Cost: ${obs.current_hourly_cost} / Budget: ${obs.budget_limit}")
         print(f"Website Crashed: {env.state.website_crashed}")
-        print(f"🏆 GRADER SCORE: {score}\n\n")
+        
+        print(f"*** GRADER SCORE: {score} ***\n\n")
 
 if __name__ == "__main__":
     run_inference()

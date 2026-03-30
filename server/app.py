@@ -2,12 +2,12 @@ import os
 import json
 import subprocess
 from fastapi import Request
-from openenv.core.env_server import create_fastapi_app
+from openenv.core.env_server import create_fastapi_app      ###
 from models import CloudAction, CloudObservation
 from .environment import CloudOptimizerEnvironment
 import server.environment as env_module
 
-app = create_fastapi_app(CloudOptimizerEnvironment, CloudAction, CloudObservation)
+app = create_fastapi_app(CloudOptimizerEnvironment, CloudAction, CloudObservation)           ## /reset , /step
 
 # ── /health ──────────────────────────────────────────────
 @app.get("/health")
@@ -43,7 +43,7 @@ async def get_tasks():
 
 # ── /grader ──────────────────────────────────────────────
 # Stateless GET: runs all 3 tasks with a simple rule-based agent
-# and returns reproducible scores. The hackathon validator calls this.
+
 @app.get("/grader")
 async def get_grader():
     from .environment import CloudOptimizerEnvironment
@@ -79,7 +79,7 @@ async def get_state():
 async def run_baseline():
     try:
         result = subprocess.run(
-            ["python", "inference.py"],  # ← CHANGED: Now points to the required inference script
+            ["python", "inference.py"],  
             capture_output=True,
             text=True,
             env=os.environ,          

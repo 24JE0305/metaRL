@@ -1,7 +1,13 @@
-import uuid
+import uuid                                                                                         ## for random-ID
 from typing import Optional, Dict, Any
-from openenv.core.env_server import Environment
+from openenv.core.env_server import Environment                                                     ## Blue-Print
 from models import CloudAction, CloudObservation, CloudState
+
+'''
+GLOBAL_LAST_SCORE is used as a quick hack 
+so that the /grader endpoint in app.py 
+can easily read if the final game was won or lost.
+'''
 
 GLOBAL_LAST_SCORE = 0.0
 
@@ -9,18 +15,23 @@ class CloudOptimizerEnvironment(Environment):
     SUPPORTS_CONCURRENT_SESSIONS = True
 
     def __init__(self):
+        '''
+        If you only had one variable for "servers", Agent A's actions would mess up Agent B's game. 
+        By using a dictionary mapping a unique episode_id to a game state, 
+        multiple games can run simultaneously without overlapping.
+        '''
         self._sessions: Dict[str, Dict[str, Any]] = {}
         self._current_episode_id: Optional[str] = None
 
     def _session(self) -> Dict[str, Any]:
         return self._sessions.get(self._current_episode_id, {})
 
-    @property
+    @property                                                                                     ## as attribute
     def state(self) -> CloudState:
         s = self._session()
         return s.get("state", CloudState())
 
-    def reset(
+    def reset(                                                                                    
         self,
         seed: Optional[int] = None,
         episode_id: Optional[str] = None,
@@ -31,10 +42,12 @@ class CloudOptimizerEnvironment(Environment):
         self._current_episode_id = eid
 
         state = CloudState(
-            episode_id=eid,
-            step_count=0,
+            episode_id=eid,                                                                       ## (Inherited from OpenEnv)
+            step_count=0,                                                                         ## (Inherited from OpenEnv)
             difficulty=difficulty
         )
+        
+        ### list of dir
 
         if difficulty == "easy":
             servers = [
@@ -152,8 +165,8 @@ class CloudOptimizerEnvironment(Environment):
         sess = self._sessions.get(eid, {})
         state = sess.get("state", CloudState())
         return CloudObservation(
-            done=False,
-            reward=0.0,
+            done=False,                                                                         ## (Inherited from OpenEnv)
+            reward=0.0,                                                                         ## (Inherited from OpenEnv)
             system_message=message,
             active_servers=list(sess.get("servers", [])),
             current_hourly_cost=sess.get("hourly_cost", 0.0),
