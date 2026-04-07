@@ -124,14 +124,18 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_n
 
 
 def run_inference():
-    # Read env vars INSIDE function so Meta's injected values are always used
+    # Read ALL env vars inside function - Meta injects API_KEY and API_BASE_URL at runtime
     api_key      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
-    base_url     = os.environ.get("API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-    model_name   = os.environ.get("MODEL_NAME", "gemini-2.5-flash")
+    base_url     = os.environ.get("API_BASE_URL")  # No fallback - must be injected
+    model_name   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
     env_base_url = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
 
     if not api_key:
-        print("Error: API_KEY environment variable not set.", flush=True)
+        print("Error: API_KEY not set.", flush=True)
+        return
+
+    if not base_url:
+        print("Error: API_BASE_URL not set.", flush=True)
         return
 
     client = OpenAI(api_key=api_key, base_url=base_url)
