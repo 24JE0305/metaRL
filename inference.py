@@ -5,21 +5,12 @@ from openai import OpenAI
 from models import CloudAction
 from client import CloudOptimizerClient
 
-# ── Required environment variables ──────────────────────────────────────────
-API_KEY    = os.environ.get("HF_TOKEN") or os.environ.get("API_KEY")
-BASE_URL   = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
-
-BENCHMARK = "cloud_optimizer"
-MAX_STEPS = 10
+BENCHMARK    = "cloud_optimizer"
+MAX_STEPS    = 10
 DIFFICULTIES = ["easy", "medium", "hard"]
-
-# ── Structured stdout helpers ────────────────────────────────────────────────
 
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
-
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
@@ -30,7 +21,6 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
         flush=True,
     )
 
-
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
@@ -39,9 +29,7 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
         flush=True,
     )
 
-# ── Agent logic ──────────────────────────────────────────────────────────────
-
-def get_action(client: OpenAI, obs) -> CloudAction:
+def get_action(client: OpenAI, obs, model_name: str) -> CloudAction:
     prompt = f"""You are an expert Cloud FinOps AI agent. Your goal is to reduce 
 costs to meet the budget without crashing the website.
 
@@ -62,7 +50,7 @@ Available Commands:
 Respond with a structured CloudAction JSON only."""
 
     response = client.beta.chat.completions.parse(
-        model=MODEL_NAME,
+        model=model_name,
         messages=[
             {"role": "system", "content": "You are an expert Cloud FinOps AI agent."},
             {"role": "user",   "content": prompt},
@@ -72,14 +60,14 @@ Respond with a structured CloudAction JSON only."""
     return response.choices[0].message.parsed
 
 
-def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str):
+def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_name: str):
     task_name = f"cloud_optimizer_{difficulty}"
     rewards: List[float] = []
     steps_taken = 0
     score = 0.0
     success = False
 
-    log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+    log_start(task=task_name, env=BENCHMARK, model=model_name)
 
     try:
         obs = env.reset(difficulty=difficulty)
@@ -91,7 +79,7 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str):
 
             error_msg = None
             try:
-                action = get_action(client, obs)
+                action = get_action(client, obs, model_name)
             except Exception as exc:
                 error_msg = str(exc)
                 action = CloudAction(command="wait")
@@ -122,7 +110,6 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str):
                 error=error_msg,
             )
 
-        # Score: 1.0 if target achieved, else 0.0
         try:
             score = 1.0 if env.state.target_achieved else 0.0
         except Exception:
@@ -137,19 +124,22 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str):
 
 
 def run_inference():
-    if not API_KEY:
-        print(
-            "Error: HF_TOKEN or API_KEY environment variable not set.",
-            flush=True,
-        )
+    # ── Read env vars INSIDE the function so Meta's injected values are used ──
+    api_key      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
+    base_url     = os.environ["API_BASE_URL"]          # must be injected by Meta
+    model_name   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+    env_base_url = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
+
+    if not api_key:
+        print("Error: API_KEY environment variable not set.", flush=True)
         return
 
-    client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
-    env    = CloudOptimizerClient(base_url=ENV_BASE_URL)
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    env    = CloudOptimizerClient(base_url=env_base_url)
 
     total_score = 0.0
     for difficulty in DIFFICULTIES:
-        score = run_task(client, env, difficulty)
+        score = run_task(client, env, difficulty, model_name)
         total_score += score
 
     overall = total_score / len(DIFFICULTIES)
