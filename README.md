@@ -1,150 +1,178 @@
-import os
-import json
-from typing import List, Optional
-from openai import OpenAI
-from models import CloudAction
-from client import CloudOptimizerClient
+---
+title: Cloud Optimizer FinOps
+emoji: 🚀
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 8000
+tags:
+  - openenv
+---
 
-BENCHMARK    = "cloud_optimizer"
-MAX_STEPS    = 10
-DIFFICULTIES = ["easy", "medium", "hard"]
+# OpenEnv: Autonomous Cloud Cost Optimizer (FinOps)
 
-def log_start(task: str, env: str, model: str) -> None:
-    print(f"[START] task={task} env={env} model={model}", flush=True)
+## Environment Description & Motivation
 
-def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    error_val = error if error else "null"
-    done_val  = str(done).lower()
-    print(
-        f"[STEP] step={step} action={action} reward={reward:.2f} "
-        f"done={done_val} error={error_val}",
-        flush=True,
-    )
+**The Problem:** Companies waste an estimated 30% of their cloud infrastructure
+budget on unused or oversized servers — billions of dollars annually.
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(
-        f"[END] success={str(success).lower()} steps={steps} "
-        f"score={score:.3f} rewards={rewards_str}",
-        flush=True,
-    )
+**The Solution:** This OpenEnv environment provides a rigorous sandbox to train
+and evaluate AI agents on **Autonomous FinOps**. The agent analyzes simulated
+server clusters, calculates costs, and safely executes `terminate` or `resize`
+commands to meet a strict budget target without crashing the website.
 
-def get_action(client: OpenAI, obs, model_name: str) -> CloudAction:
-    prompt = f"""You are an expert Cloud FinOps AI agent. Your goal is to reduce 
-costs to meet the budget without crashing the website.
+This is a real-world task: FinOps engineers do exactly this every day in AWS,
+GCP, and Azure consoles. Automating it with a reliable AI agent has direct
+commercial value.
 
-Current Status:
-- Message: {obs.system_message}
-- Hourly Cost: ${obs.current_hourly_cost}
-- Budget Limit: ${obs.budget_limit}
-- Website Status: {obs.website_status}
+---
 
-Active Servers:
-{json.dumps(obs.active_servers, indent=2)}
+## Action Space (`CloudAction`)
 
-Available Commands:
-1. "terminate" (requires server_id) - Drops cost to $0. Do NOT terminate if CPU > 50%.
-2. "resize" (requires server_id, new_size: "small"=$2/hr, "medium"=$5/hr, "large"=$10/hr)
-3. "wait" - Do nothing this step.
+| Field | Type | Required | Values |
+|---|---|---|---|
+| `command` | str | yes | `"terminate"`, `"resize"`, `"wait"` |
+| `server_id` | str | for terminate/resize | e.g. `"web-01"` |
+| `new_size` | str | for resize only | `"small"`, `"medium"`, `"large"` |
 
-Respond with a structured CloudAction JSON only."""
+**Cost by size:** small = $2/hr, medium = $5/hr, large = $10/hr
 
-    response = client.beta.chat.completions.parse(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": "You are an expert Cloud FinOps AI agent."},
-            {"role": "user",   "content": prompt},
-        ],
-        response_format=CloudAction,
-    )
-    return response.choices[0].message.parsed
+---
 
+## Observation Space (`CloudObservation`)
 
-def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_name: str):
-    task_name = f"cloud_optimizer_{difficulty}"
-    rewards: List[float] = []
-    steps_taken = 0
-    score = 0.0
-    success = False
+| Field | Type | Description |
+|---|---|---|
+| `system_message` | str | Feedback on the last action taken |
+| `active_servers` | List[Dict] | Each server's `server_id`, `cpu` (%), `ram`, `cost` |
+| `current_hourly_cost` | float | Total cost per hour across all servers |
+| `budget_limit` | float | Target cost the agent must get under |
+| `website_status` | str | `"Online"` or `"Offline"` |
 
-    log_start(task=task_name, env=BENCHMARK, model=model_name)
+---
 
-    try:
-        obs = env.reset(difficulty=difficulty)
-        done = False
+## Task Descriptions
 
-        for step in range(1, MAX_STEPS + 1):
-            if done:
-                break
+### Easy — Terminate the ghost server
+- **Starting servers:** web-01 (80% CPU, large, $10/hr), web-02 (0% CPU, large, $10/hr)
+- **Starting cost:** $20/hr
+- **Budget target:** ≤ $15/hr
+- **Solution:** Terminate web-02 (0% CPU = safe to remove)
+- **Expected difficulty:** Any capable LLM solves this in 1 step
 
-            error_msg = None
-            try:
-                action = get_action(client, obs, model_name)
-            except Exception as exc:
-                error_msg = str(exc)
-                action = CloudAction(command="wait")
+### Medium — Resize the oversized database
+- **Starting servers:** db-01 (10% CPU, large, $10/hr), web-01 (85% CPU, medium, $5/hr)
+- **Starting cost:** $15/hr
+- **Budget target:** ≤ $8/hr
+- **Solution:** Resize db-01 to small ($2/hr), bringing total to $7/hr
+- **Expected difficulty:** Requires understanding CPU vs cost tradeoff
 
-            action_str = (
-                f"{action.command}"
-                + (f"('{action.server_id}')" if action.server_id else "()")
-            )
+### Hard — Multi-step optimization without crashing
+- **Starting servers:** web-01 (90% CPU, medium, $5/hr), web-02 (5% CPU, large, $10/hr), db-01 (0% CPU, small, $2/hr)
+- **Starting cost:** $17/hr
+- **Budget target:** ≤ $10/hr
+- **Solution:** Terminate db-01 (0% CPU) + resize web-02 to small → total $7/hr. Must NOT touch web-01 (90% CPU = website crash)
+- **Expected difficulty:** Requires multi-step planning and risk awareness
 
-            try:
-                result = env.step(action)
-                obs    = result.observation
-                reward = float(result.reward or 0.0)
-                done   = result.done
-            except Exception as exc:
-                reward    = 0.0
-                done      = True
-                error_msg = str(exc)
+---
 
-            rewards.append(reward)
-            steps_taken = step
+## Reward Function
 
-            log_step(
-                step=step,
-                action=action_str,
-                reward=reward,
-                done=done,
-                error=error_msg,
-            )
+| Event | Reward |
+|---|---|
+| Successful terminate (CPU ≤ 50%) | +0.2 |
+| Successful resize | +0.2 |
+| Terminating high-CPU server (CPU > 50%) | -0.5 |
+| Reaching budget target without crash | +0.5 |
 
-        try:
-            score = 1.0 if env.state.target_achieved else 0.0
-        except Exception:
-            score = 1.0 if rewards and rewards[-1] > 0 else 0.0
+Rewards are given at each step, providing partial progress signal throughout
+the episode rather than only at the end.
 
-        success = score >= 0.5
+---
 
-    finally:
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+## Setup Instructions
 
-    return score
+### 1. Clone the repo
+```bash
+git clone https://github.com/24JE0305/metaRL.git
+cd metaRL
+```
 
+### 2. Install dependencies
+```bash
+pip install -r requirements.txt
+```
 
-def run_inference():
-    # Read env vars INSIDE function so Meta's injected values are always used
-    api_key      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
-    base_url     = os.environ.get("API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-    model_name   = os.environ.get("MODEL_NAME", "gemini-2.5-flash")
-    env_base_url = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
+### 3. Run the server locally
+```bash
+uvicorn server.app:app --host 0.0.0.0 --port 8000
+```
 
-    if not api_key:
-        print("Error: API_KEY environment variable not set.", flush=True)
-        return
+### 4. Verify it works
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/tasks
+curl http://localhost:8000/grader
+```
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
-    env    = CloudOptimizerClient(base_url=env_base_url)
+### 5. Run with Docker
+```bash
+docker build -t cloud-optimizer .
+docker run -p 8000:8000 cloud-optimizer
+```
 
-    total_score = 0.0
-    for difficulty in DIFFICULTIES:
-        score = run_task(client, env, difficulty, model_name)
-        total_score += score
+---
 
-    overall = total_score / len(DIFFICULTIES)
-    print(f"\nOverall score: {overall:.3f}", flush=True)
+## Running the Inference Script
 
+Set the required environment variables first:
+```bash
+# Windows PowerShell
+$env:HF_TOKEN="your-huggingface-token"
+$env:API_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
+$env:MODEL_NAME="gemini-2.5-flash"
+$env:ENV_BASE_URL="http://localhost:8000"
 
-if __name__ == "__main__":
-    run_inference()
+# Linux / Mac
+export HF_TOKEN="your-huggingface-token"
+export API_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
+export MODEL_NAME="gemini-2.5-flash"
+export ENV_BASE_URL="http://localhost:8000"
+```
+
+Then run:
+```bash
+python inference.py
+```
+
+---
+
+## Baseline Scores
+
+Scores from the deterministic rule-based agent (accessible at `/grader`):
+
+| Task | Score | Final Cost | Budget |
+|---|---|---|---|
+| Easy | 1.0 / 1.0 | $10/hr | $15/hr |
+| Medium | 1.0 / 1.0 | $7/hr | $8/hr |
+| Hard | 1.0 / 1.0 | $7/hr | $10/hr |
+| **Overall** | **1.0 / 1.0** | | |
+
+To reproduce:
+```bash
+curl http://localhost:8000/grader
+```
+
+---
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | GET | Health check |
+| `/reset` | POST | Start a new episode |
+| `/step` | POST | Take an action |
+| `/state` | GET | Get current environment state |
+| `/tasks` | GET | List all tasks with descriptions |
+| `/grader` | GET | Run deterministic grader, returns scores |
+| `/baseline` | GET | Run inference.py and return output |
