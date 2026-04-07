@@ -4,4 +4,4 @@ __pycache__/
 .env
 upload.py
 validate-submission.sh
-validate-submission-new.sh
+valid-submission-new.sh
