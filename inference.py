@@ -47,18 +47,37 @@ Available Commands:
 2. "resize" (requires server_id, new_size: "small"=$2/hr, "medium"=$5/hr, "large"=$10/hr)
 3. "wait" - Do nothing this step.
 
-Respond with a structured CloudAction JSON only."""
+Respond ONLY with a valid JSON object matching exactly this schema (no markdown, no extra text):
+{{
+  "command": "terminate|resize|wait",
+  "server_id": "string or null",
+  "new_size": "small|medium|large or null"
+}}"""
 
-    response = client.beta.chat.completions.parse(
+    # Use standard .create() instead of .parse()
+    response = client.chat.completions.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": "You are an expert Cloud FinOps AI agent."},
+            {"role": "system", "content": "You are an expert Cloud FinOps AI agent. Output raw JSON only."},
             {"role": "user",   "content": prompt},
         ],
-        response_format=CloudAction,
+        temperature=0.1,
     )
-    return response.choices[0].message.parsed
-
+    
+    content = response.choices[0].message.content.strip()
+    
+    # Strip markdown code blocks if the model accidentally includes them
+    if content.startswith("```json"):
+        content = content[7:]
+    if content.startswith("```"):
+        content = content[3:]
+    if content.endswith("```"):
+        content = content[:-3]
+    content = content.strip()
+    
+    # Manually load the JSON and pass it to your Pydantic model
+    parsed_data = json.loads(content)
+    return CloudAction(**parsed_data)
 
 def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_name: str):
     task_name = f"cloud_optimizer_{difficulty}"
@@ -82,6 +101,8 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_n
                 action = get_action(client, obs, model_name)
             except Exception as exc:
                 error_msg = str(exc)
+                # ADD THIS LINE so you can read the error if it happens!
+                print(f"[DEBUG] API or Parsing Error: {exc}", flush=True) 
                 action = CloudAction(command="wait")
 
             action_str = (
