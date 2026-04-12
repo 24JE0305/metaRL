@@ -145,22 +145,20 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_n
 
 
 def run_inference():
-    # Read ALL env vars inside function - Meta injects API_KEY and API_BASE_URL at runtime
-    api_key      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
-    base_url     = os.environ.get("API_BASE_URL")  # No fallback - must be injected
+    # EXACTLY as Meta's official example shows
+    api_base_url = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
     model_name   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-    env_base_url = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
+    hf_token     = os.environ.get("HF_TOKEN")
 
-    if not api_key:
-        print("Error: API_KEY not set.", flush=True)
+    if hf_token is None:
+        print("Error: HF_TOKEN is required.", flush=True)
         return
 
-    if not base_url:
-        print("Error: API_BASE_URL not set.", flush=True)
-        return
-
-    client = OpenAI(api_key=api_key, base_url=base_url)
-    env    = CloudOptimizerClient(base_url=env_base_url)
+    client = OpenAI(
+        base_url=api_base_url,
+        api_key=hf_token  # HF_TOKEN is the api_key!
+    )
+    env = CloudOptimizerClient(base_url=os.environ.get("ENV_BASE_URL", "http://localhost:8000"))
 
     total_score = 0.0
     for difficulty in DIFFICULTIES:
