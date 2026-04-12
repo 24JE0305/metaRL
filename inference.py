@@ -16,16 +16,15 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     error_val = error if error else "null"
     done_val  = str(done).lower()
     print(
-        f"[STEP] step={step} action={action} reward={reward:.2f} "
-        f"done={done_val} error={error_val}",
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
         flush=True,
     )
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+    # Removed 'score=' to match exact Hackathon guideline regex requirements
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} "
-        f"score={score:.3f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}",
         flush=True,
     )
 
@@ -54,7 +53,6 @@ Respond ONLY with a valid JSON object matching exactly this schema (no markdown,
   "new_size": "small|medium|large or null"
 }}"""
 
-    # Use standard .create() instead of .parse()
     response = client.chat.completions.create(
         model=model_name,
         messages=[
@@ -75,7 +73,6 @@ Respond ONLY with a valid JSON object matching exactly this schema (no markdown,
         content = content[:-3]
     content = content.strip()
     
-    # Manually load the JSON and pass it to your Pydantic model
     parsed_data = json.loads(content)
     return CloudAction(**parsed_data)
 
@@ -101,7 +98,6 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_n
                 action = get_action(client, obs, model_name)
             except Exception as exc:
                 error_msg = str(exc)
-                # ADD THIS LINE so you can read the error if it happens!
                 print(f"[DEBUG] API or Parsing Error: {exc}", flush=True) 
                 action = CloudAction(command="wait")
 
@@ -139,24 +135,27 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_n
         success = score >= 0.5
 
     finally:
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        # score removed here to match the updated log_end function
+        log_end(success=success, steps=steps_taken, rewards=rewards)
 
     return score
 
 
 def run_inference():
-    # EXACTLY as Meta's official example shows
-    api_base_url = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
+    api_base_url = os.environ.get("API_BASE_URL", "[https://router.huggingface.co/v1](https://router.huggingface.co/v1)")
     model_name   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-    hf_token     = os.environ.get("HF_TOKEN")
+    
+    # CRITICAL FIX: The Grader injects API_KEY to track usage. 
+    # If API_KEY is present, you MUST use it. Otherwise, fallback to HF_TOKEN for local testing.
+    api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
 
-    if hf_token is None:
-        print("Error: HF_TOKEN is required.", flush=True)
+    if not api_key:
+        print("Error: API_KEY or HF_TOKEN is required.", flush=True)
         return
 
     client = OpenAI(
         base_url=api_base_url,
-        api_key=hf_token  # HF_TOKEN is the api_key!
+        api_key=api_key 
     )
     env = CloudOptimizerClient(base_url=os.environ.get("ENV_BASE_URL", "http://localhost:8000"))
 
