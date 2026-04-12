@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from typing import List, Optional
 from openai import OpenAI
 from models import CloudAction
@@ -21,7 +22,6 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 def log_end(success: bool, steps: int, rewards: List[float]) -> None:
-    # Removed 'score=' to match exact Hackathon guideline regex requirements
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
         f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}",
@@ -60,11 +60,11 @@ Respond ONLY with a valid JSON object matching exactly this schema (no markdown,
             {"role": "user",   "content": prompt},
         ],
         temperature=0.1,
+        max_tokens=256, 
     )
     
     content = response.choices[0].message.content.strip()
     
-    # Strip markdown code blocks if the model accidentally includes them
     if content.startswith("```json"):
         content = content[7:]
     if content.startswith("```"):
@@ -76,7 +76,8 @@ Respond ONLY with a valid JSON object matching exactly this schema (no markdown,
     parsed_data = json.loads(content)
     return CloudAction(**parsed_data)
 
-def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_name: str):
+# ADDED ASYNC
+async def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_name: str):
     task_name = f"cloud_optimizer_{difficulty}"
     rewards: List[float] = []
     steps_taken = 0
@@ -86,7 +87,9 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_n
     log_start(task=task_name, env=BENCHMARK, model=model_name)
 
     try:
-        obs = env.reset(difficulty=difficulty)
+        # ADDED AWAIT and safe observation extraction
+        reset_result = await env.reset(difficulty=difficulty)
+        obs = reset_result.observation if hasattr(reset_result, "observation") else reset_result
         done = False
 
         for step in range(1, MAX_STEPS + 1):
@@ -94,12 +97,7 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_n
                 break
 
             error_msg = None
-            try:
-                action = get_action(client, obs, model_name)
-            except Exception as exc:
-                error_msg = str(exc)
-                print(f"[DEBUG] API or Parsing Error: {exc}", flush=True) 
-                action = CloudAction(command="wait")
+            action = get_action(client, obs, model_name)
 
             action_str = (
                 f"{action.command}"
@@ -107,7 +105,8 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_n
             )
 
             try:
-                result = env.step(action)
+                # ADDED AWAIT
+                result = await env.step(action)
                 obs    = result.observation
                 reward = float(result.reward or 0.0)
                 done   = result.done
@@ -135,38 +134,35 @@ def run_task(client: OpenAI, env: CloudOptimizerClient, difficulty: str, model_n
         success = score >= 0.5
 
     finally:
-        # score removed here to match the updated log_end function
         log_end(success=success, steps=steps_taken, rewards=rewards)
 
     return score
 
-
-def run_inference():
-    api_base_url = os.environ.get("API_BASE_URL", "[https://router.huggingface.co/v1](https://router.huggingface.co/v1)")
-    model_name   = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-    
-    # CRITICAL FIX: The Grader injects API_KEY to track usage. 
-    # If API_KEY is present, you MUST use it. Otherwise, fallback to HF_TOKEN for local testing.
-    api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
-
-    if not api_key:
-        print("Error: API_KEY or HF_TOKEN is required.", flush=True)
-        return
+# ADDED ASYNC
+async def run_inference():
+    if "API_BASE_URL" not in os.environ:
+        os.environ["API_BASE_URL"] = "[https://router.huggingface.co/v1](https://router.huggingface.co/v1)"
+    if "API_KEY" not in os.environ:
+        os.environ["API_KEY"] = os.environ.get("HF_TOKEN", "dummy-token")
+        
+    model_name = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
     client = OpenAI(
-        base_url=api_base_url,
-        api_key=api_key 
+        base_url=os.environ["API_BASE_URL"],
+        api_key=os.environ["API_KEY"]
     )
+    
     env = CloudOptimizerClient(base_url=os.environ.get("ENV_BASE_URL", "http://localhost:8000"))
 
     total_score = 0.0
     for difficulty in DIFFICULTIES:
-        score = run_task(client, env, difficulty, model_name)
+        # ADDED AWAIT
+        score = await run_task(client, env, difficulty, model_name)
         total_score += score
 
     overall = total_score / len(DIFFICULTIES)
     print(f"\nOverall score: {overall:.3f}", flush=True)
 
-
 if __name__ == "__main__":
-    run_inference()
+    # ADDED ASYNCIO.RUN()
+    asyncio.run(run_inference())
