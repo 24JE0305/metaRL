@@ -154,7 +154,7 @@ class CloudOptimizerEnvironment(Environment):
 
         # Update the global scoreboard for the /grader endpoint
         if done:
-            GLOBAL_LAST_SCORE = 1.0 if state.target_achieved else 0.0
+            GLOBAL_LAST_SCORE = 0.99 if state.target_achieved else 0.01
 
         obs = self._make_observation(self._current_episode_id, message)
         obs.done = done

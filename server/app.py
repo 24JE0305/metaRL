@@ -2,14 +2,13 @@ import os
 import json
 import subprocess
 from fastapi import Request
-from openenv.core.env_server import create_fastapi_app      ###
+from openenv.core.env_server import create_fastapi_app
 from models import CloudAction, CloudObservation
 from .environment import CloudOptimizerEnvironment
 import server.environment as env_module
 
-app = create_fastapi_app(CloudOptimizerEnvironment, CloudAction, CloudObservation)           ## /reset , /step
+app = create_fastapi_app(CloudOptimizerEnvironment, CloudAction, CloudObservation)
 
-# ── /health ──────────────────────────────────────────────
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -30,7 +29,6 @@ async def reset(request: Request):
         "done": False
     }
 
-# ── /tasks ──────────────────────────────────────────────
 @app.get("/tasks")
 async def get_tasks():
     return {
@@ -57,9 +55,6 @@ async def get_tasks():
         "action_schema": CloudAction.model_json_schema()
     }
 
-# ── /grader ──────────────────────────────────────────────
-# Stateless GET: runs all 3 tasks with a simple rule-based agent
-
 @app.get("/grader")
 async def get_grader():
     from .environment import CloudOptimizerEnvironment
@@ -72,9 +67,25 @@ async def get_grader():
             action = _rule_based_agent(obs, difficulty)
             obs = env.step(action)
             done = obs.done
-        score = 1.0 if env.state.target_achieved else 0.0
+            
+        # FIX: Ensure score is STRICTLY between 0.0 and 1.0
+        if env.state.website_crashed:
+            score = 0.01
+        elif env.state.target_achieved:
+            score = 0.99
+        else:
+            # Partial credit if they reduced cost but didn't hit the target
+            start_c = env.state.starting_cost
+            curr_c = env.state.current_cost
+            target_c = obs.budget_limit
+            if start_c > target_c:
+                progress = (start_c - curr_c) / (start_c - target_c)
+                score = 0.1 + (0.8 * max(0.0, min(1.0, progress))) # Scales between 0.1 and 0.9
+            else:
+                score = 0.5
+                
         results[difficulty] = {
-            "score": score,
+            "score": round(score, 4),
             "final_cost": env.state.current_cost,
             "budget": obs.budget_limit,
             "website_crashed": env.state.website_crashed,
@@ -83,14 +94,11 @@ async def get_grader():
     overall = sum(r["score"] for r in results.values()) / 3
     return {"overall_score": round(overall, 4), "tasks": results}
 
-# ── /state ───────────────────────────────────────────────
-# Required by OpenEnv spec: step() / reset() / state()
 @app.get("/state")
 async def get_state():
     env = CloudOptimizerEnvironment()
     return env.state.model_dump()
 
-# ── /baseline ────────────────────────────────────────────
 @app.get("/baseline")
 async def run_baseline():
     try:
@@ -111,19 +119,15 @@ async def run_baseline():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# ── internal rule-based agent (used by /grader) ──────────
 def _rule_based_agent(obs, difficulty: str):
     from models import CloudAction
     servers = obs.active_servers
-    # Find 0% CPU → terminate
     for s in servers:
         if s["cpu"] == 0:
             return CloudAction(command="terminate", server_id=s["server_id"])
-    # Find low CPU large server → resize to small
     for s in servers:
         if s["cpu"] <= 15 and s["ram"] == "large":
             return CloudAction(command="resize", server_id=s["server_id"], new_size="small")
-    # Find low CPU medium server → resize to small
     for s in servers:
         if s["cpu"] <= 20 and s["ram"] == "medium":
             return CloudAction(command="resize", server_id=s["server_id"], new_size="small")
